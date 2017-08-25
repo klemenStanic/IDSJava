@@ -1,0 +1,8 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="IDSJava:jar">
+    <output-path>$PROJECT_DIR$/out/artifacts/IDSJava_jar</output-path>
+    <root id="archive" name="IDSJava.jar">
+      <element id="module-output" name="IDSJava" />
+    </root>
+  </artifact>
+</component>
