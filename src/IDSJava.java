@@ -47,7 +47,7 @@ public class IDSJava {
 
     }
 
-    // checks for ICMP events in Elasticsearch, if more than THRESHOLD, calls writeEventToES()
+    // checks  for ICMP events in Elasticsearch, if more than THRESHOLD, calls writeEventToES()
     private static void ICMPTesting(int THRESHOLD, JavaSparkContext jsc) {
 
         JavaPairRDD<String, Map<String, Object>> esRDD = JavaEsSpark.esRDD(jsc, getCurrentDate(true) + "/syslog");
