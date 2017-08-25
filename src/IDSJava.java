@@ -29,39 +29,63 @@ import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.util.*;
 
+
+
+
 public class IDSJava {
     public Long lastCheckTime;
     public static void main(String[] args) {
-        int THRESHOLD = 5;
-        ICMPTesting(THRESHOLD);
-
-
-
-//        Map<String, ?> numbers = ImmutableMap.of("one", 1, "two", 2);
-//        Map<String, ?> airports = ImmutableMap.of("OTP", "Otopeni", "SFO", "San Fran");
-//        JavaRDD<Map<String, ?>> javaRDDOut = jsc.parallelize(ImmutableList.of(numbers, airports));
-//        JavaEsSpark.saveToEs(javaRDDOut, "threats/try");
-    }
-
-    private static void ICMPTesting(int THRESHOLD) {
+        int THRESHOLD = Integer.parseInt(args[0]);
         SparkConf conf = new SparkConf().setAppName("myApp").setMaster("local");
         conf.set("es.index.auto.create", "true");
-        conf.set("es.resource", getCurrentDate());
+        System.out.println("GET CURRENT DATE: " + getCurrentDate(true));
         JavaSparkContext jsc = new JavaSparkContext(conf);
-        JavaPairRDD<String, Map<String, Object>> esRDD = JavaEsSpark.esRDD(jsc, getCurrentDate() + "/syslog");
-        JavaRDD<Map<String, Object>> esRDD1 = JavaEsSpark.esRDD(jsc, getCurrentDate() + "/syslog").values().filter(doc -> doc.containsValue(" Generic ICMP event"));
+
+
+        //perform ICMP tests, if there are more than THRESHOLD ICMP events, write a warning back to elasticsearch
+        ICMPTesting(THRESHOLD, jsc);
+
+    }
+
+    // checks for ICMP events in Elasticsearch, if more than THRESHOLD, calls writeEventToES()
+    private static void ICMPTesting(int THRESHOLD, JavaSparkContext jsc) {
+
+        JavaPairRDD<String, Map<String, Object>> esRDD = JavaEsSpark.esRDD(jsc, getCurrentDate(true) + "/syslog");
+        JavaRDD<Map<String, Object>> esRDD1 = JavaEsSpark.esRDD(jsc, getCurrentDate(true) + "/syslog").values().filter(doc -> doc.containsValue(" Generic ICMP event"));
 
         long lastCheck = getLastCheck();
         Object[] icmpAndTime = getOnlyICMPEvents(esRDD1, lastCheck);
 
 
         List<Map<String, Object>> ICMPevents = (List<Map<String, Object>>) icmpAndTime[0];
+        System.out.println("------------------------------------------------------------");
+        System.out.println("SIZE: " + ICMPevents.size());
+        for (Map<String, Object> a : ICMPevents){
+            System.out.println(a.get("event").toString());
+        }
+        System.out.println("...........................................................");
         if (ICMPevents.size() > THRESHOLD){
             writeEventToES(ICMPevents, jsc);
         }
         updateLastCheck((Long)icmpAndTime[1]);
     }
 
+    // writes an ICMP warning to ElasticSearch
+    private static void writeEventToES(List<Map<String, Object>> ICMPevents, JavaSparkContext jsc) {
+        System.out.println("ISITHERE?----------------------------------------------------------------------------");
+        jsc.close();
+        SparkConf confSave = new SparkConf().setAppName("myApp").setMaster("local");
+        confSave.set("es.index.auto.create", "true");
+        JavaSparkContext jscSave = new JavaSparkContext(confSave);
+
+        Map<String, ?> numbers = ImmutableMap.of("one", 1, "two", 2, "date", getCurrentDate(false));
+        Map<String, ?> airports = ImmutableMap.of("OTP", "Otopeni", "SFO", "San Fran", "date", getCurrentDate(false));
+
+        JavaRDD<Map<String, ?>> javaRDD = jscSave.parallelize(ImmutableList.of(numbers, airports));
+        JavaEsSpark.saveToEs(javaRDD, "threats/icmp");
+    }
+
+    // writes the last ICMP checked to file, to know from where to read in next iteration of running this program
     private static void updateLastCheck(Long toOut) {
         try {
             File file = new File("last_check.txt");
@@ -76,21 +100,7 @@ public class IDSJava {
 
     }
 
-    private static void writeEventToES(List<Map<String, Object>> ICMPevents, JavaSparkContext jsc) {
-        jsc.close();
-        SparkConf confSave = new SparkConf().setAppName("myApp").setMaster("local");
-        confSave.set("es.index.auto.create", "true");
-        confSave.set("es.resource", "tryindex");
-        JavaSparkContext jscSave = new JavaSparkContext(confSave);
-
-        Map<String, ?> numbers = ImmutableMap.of("one", 1, "two", 2);
-        Map<String, ?> airports = ImmutableMap.of("OTP", "Otopeni", "SFO", "San Fran");
-
-        JavaRDD<Map<String, ?>> javaRDD = jscSave.parallelize(ImmutableList.of(numbers, airports));
-        JavaEsSpark.saveToEs(javaRDD, "tryindex/try");
-
-    }
-
+    // called by ICMPTesting()
     public static Object[] getOnlyICMPEvents(JavaRDD<Map<String, Object>> esRDD1, long lastCheck){
         SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
         List<Map<String, Object>> onlyICMPevents = new ArrayList<>();
@@ -119,14 +129,18 @@ public class IDSJava {
         return out;
     }
 
-    public static String getCurrentDate(){
+    // if boolean full == true; returns full name of the index, else returns @String time in miliseconds
+    public static String getCurrentDate(boolean full){
         Calendar now = Calendar.getInstance();
         int day = now.get(Calendar.DAY_OF_MONTH);
         int month = now.get(Calendar.MONTH) + 1;
         int year = now.get(Calendar.YEAR);
-        return "syslog-" + year + "." + String.format("%02d", month) + "." + String.format("%02d", day);
+        if (full) {
+            return "syslog-" + year + "." + String.format("%02d", month) + "." + String.format("%02d", day);
+        } else return now.getTimeInMillis() + "";
     }
 
+    // reads time from file. Time = when the last iteration of this program was performed, so we dont need to check the whole index every time we run this program
     public static long getLastCheck() {
         try {
             Scanner sc = new Scanner(new File("last_check.txt"));
